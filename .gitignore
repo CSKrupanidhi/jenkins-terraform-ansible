@@ -1,0 +1,19 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+*.tfvars
+
+# Ansible
+*.retry
+
+# SSH keys and credentials
+*.pem
+*.key
+.aws/
+
+# Sensitive files
+.env
