@@ -45,21 +45,37 @@ pipeline {
                     echo "Checking Jenkins SSH public key"
                     test -f "$TF_VAR_public_key_path"
                 '''
+		
+		script {
+		    def publicIp = sh(
+		        script: '''
+		            curl -4fsS --retry 2 \
+		              --connect-timeout 10 \
+		              https://checkip.amazonaws.com |
+		              tr -d '\\r\\n'
+		        ''',
+		        returnStdout: true
+		    ).trim()
 
-                script {
-                    def publicIp = sh(
-                        script: 'curl -4fsS https://checkip.amazonaws.com',
-                        returnStdout: true
-                    ).trim()
+		    echo "Detected public IPv4: ${publicIp}"
 
-                    if (!(publicIp ==~ /[0-9]{1,3}(\\.[0-9]{1,3}){3}/)) {
-                        error('Could not determine public IPv4 address')
-                    }
+		    // Validate using Python's IPv4 address parser
+		    withEnv(["CHECK_PUBLIC_IP=${publicIp}"]) {
+		        sh '''
+		            python3 -c "
+		import ipaddress
+		import os
+		ipaddress.IPv4Address(os.environ['CHECK_PUBLIC_IP'])
+		print('Public IPv4 validation successful')
+		"
+		        '''
+		    }
 
-                    env.TF_VAR_admin_cidr = "${publicIp}/32"
+		    env.TF_VAR_admin_cidr = "${publicIp}/32"
 
-                    echo "SSH access restricted to ${env.TF_VAR_admin_cidr}"
-                }
+		    echo "SSH access restricted to ${env.TF_VAR_admin_cidr}"
+		}
+
             }
         }
 
