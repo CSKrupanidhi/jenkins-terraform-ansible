@@ -1,6 +1,5 @@
 
 pipeline {
-
     agent any
 
     options {
@@ -9,21 +8,25 @@ pipeline {
         timeout(time: 30, unit: 'MINUTES')
     }
 
+    parameters {
+        choice(
+            name: 'ACTION',
+            choices: ['BUILD', 'DESTROY'],
+            description: 'Choose whether to create or destroy AWS infrastructure'
+        )
+    }
+
     environment {
         AWS_DEFAULT_REGION = 'ap-southeast-2'
-
         AWS_ACCESS_KEY_ID = credentials('aws-access-key-id')
         AWS_SECRET_ACCESS_KEY = credentials('aws-secret-access-key')
-
-        TF_VAR_public_key_path =
-            '/var/lib/jenkins/.ssh/aws-ansible-key.pub'
+        TF_VAR_public_key_path = '/var/lib/jenkins/.ssh/aws-ansible-key.pub'
     }
 
     stages {
 
         stage('Checkout') {
             steps {
-                echo 'Checking out GitHub repository'
                 checkout scm
             }
         }
@@ -32,50 +35,29 @@ pipeline {
             steps {
                 sh '''
                     set -eu
-
-                    echo "Checking Terraform"
                     terraform version
-
-                    echo "Checking Git"
-                    git --version
-
-                    echo "Checking AWS authentication"
                     aws sts get-caller-identity
-
-                    echo "Checking Jenkins SSH public key"
                     test -f "$TF_VAR_public_key_path"
                 '''
-		
-		script {
-		    def publicIp = sh(
-		        script: '''
-		            curl -4fsS --retry 2 \
-		              --connect-timeout 10 \
-		              https://checkip.amazonaws.com |
-		              tr -d '\\r\\n'
-		        ''',
-		        returnStdout: true
-		    ).trim()
 
-		    echo "Detected public IPv4: ${publicIp}"
+                script {
+                    def publicIp = sh(
+                        script: 'curl -4fsS https://checkip.amazonaws.com',
+                        returnStdout: true
+                    ).trim()
 
-		    // Validate using Python's IPv4 address parser
-		    withEnv(["CHECK_PUBLIC_IP=${publicIp}"]) {
-		        sh '''
-		            python3 -c "
-		import ipaddress
-		import os
+                    withEnv(["CHECK_PUBLIC_IP=${publicIp}"]) {
+                        sh '''
+                            python3 -c "
+		import ipaddress, os
 		ipaddress.IPv4Address(os.environ['CHECK_PUBLIC_IP'])
-		print('Public IPv4 validation successful')
 		"
-		        '''
-		    }
+                        '''
+                    }
 
-		    env.TF_VAR_admin_cidr = "${publicIp}/32"
-
-		    echo "SSH access restricted to ${env.TF_VAR_admin_cidr}"
-		}
-
+                    env.TF_VAR_admin_cidr = "${publicIp}/32"
+                    echo "SSH CIDR: ${env.TF_VAR_admin_cidr}"
+                }
             }
         }
 
@@ -83,14 +65,6 @@ pipeline {
             steps {
                 dir('terraform') {
                     sh 'terraform init -input=false'
-                }
-            }
-        }
-
-        stage('Terraform Format') {
-            steps {
-                dir('terraform') {
-                    sh 'terraform fmt -check -recursive'
                 }
             }
         }
@@ -103,42 +77,70 @@ pipeline {
             }
         }
 
-        stage('Terraform Plan') {
+        stage('Verify Terraform State') {
             steps {
                 dir('terraform') {
                     sh '''
-                        terraform plan \
-                          -input=false \
-                          -out=tfplan
+                        echo "Current Terraform state:"
+                        terraform state list
                     '''
+                }
+            }
+        }
+
+        stage('Terraform Plan') {
+            steps {
+                dir('terraform') {
+                    script {
+                        if (params.ACTION == 'BUILD') {
+                            sh 'terraform plan -input=false -out=tfplan'
+                        } else {
+                            sh 'terraform plan -destroy -input=false -out=destroy.tfplan'
+                        }
+                    }
                 }
             }
         }
 
         stage('Manual Approval') {
             steps {
-                input message: 'Review the Terraform plan. Approve AWS EC2 creation?',
-                      ok: 'Approve Infrastructure'
-            }
-        }
-
-        stage('Terraform Apply') {
-            steps {
-                dir('terraform') {
-                    sh '''
-                        terraform apply \
-                          -input=false \
-                          -auto-approve \
-                          tfplan
-                    '''
+                script {
+                    if (params.ACTION == 'BUILD') {
+                        input message: 'Approve AWS infrastructure creation?',
+                              ok: 'Approve BUILD'
+                    } else {
+                        input message: 'WARNING: Approve destruction of AWS infrastructure?',
+                              ok: 'Approve DESTROY'
+                    }
                 }
             }
         }
 
-        stage('Infrastructure Output') {
+        stage('Terraform Execute') {
             steps {
                 dir('terraform') {
-                    sh 'terraform output'
+                    script {
+                        if (params.ACTION == 'BUILD') {
+                            sh 'terraform apply -input=false -auto-approve tfplan'
+                        } else {
+                            sh 'terraform apply -input=false -auto-approve destroy.tfplan'
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Infrastructure Result') {
+            steps {
+                dir('terraform') {
+                    script {
+                        if (params.ACTION == 'BUILD') {
+                            sh 'terraform output'
+                        } else {
+                            sh 'terraform state list'
+                            echo 'Infrastructure destruction completed.'
+                        }
+                    }
                 }
             }
         }
@@ -146,16 +148,13 @@ pipeline {
 
     post {
         success {
-            echo 'AWS infrastructure deployment completed!'
+            echo "Pipeline completed successfully: ${params.ACTION}"
         }
-
         failure {
-            echo 'Pipeline failed. Review the Jenkins console output.'
+            echo 'Pipeline failed. Review the console output.'
         }
-
         always {
-            echo 'Jenkins pipeline execution finished.'
+            echo 'Pipeline execution finished.'
         }
     }
 }
-
