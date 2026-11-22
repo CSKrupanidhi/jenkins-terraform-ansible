@@ -31,7 +31,7 @@ data "aws_ami" "ubuntu" {
 
 resource "aws_key_pair" "web_key" {
   key_name   = "jenkins-ansible-web-key"
-  public_key = file(pathexpand(var.public_key))
+  public_key = file(pathexpand(var.public_key_path))
 
   tags = {
     Project = "jenkins-terraform-ansible"
