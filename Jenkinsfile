@@ -77,16 +77,24 @@ pipeline {
             }
         }
 
-        stage('Verify Terraform State') {
-            steps {
-                dir('terraform') {
-                    sh '''
-                        echo "Current Terraform state:"
-                        terraform state list
-                    '''
-                }
-            }
-        }
+
+	stage('Verify Terraform State') {
+	    steps {
+	        dir('terraform') {
+	            sh '''
+	                set -eu
+
+	                if [ -f terraform.tfstate ]; then
+	                    echo "Existing Terraform state found."
+	                    terraform state list
+	                else
+	                    echo "No existing state file found."
+	                    echo "This is a fresh deployment. Terraform will create the state during apply."
+	                fi
+	            '''
+	        }
+	    }
+	}
 
         stage('Terraform Plan') {
             steps {
