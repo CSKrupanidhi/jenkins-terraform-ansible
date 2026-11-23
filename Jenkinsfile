@@ -144,7 +144,42 @@ pipeline {
                 }
             }
         }
+
+	stage('Generate Ansible Inventory') {
+	    when {
+	        expression { params.ACTION == 'BUILD' }
+	    }
+	    steps {
+	        script {
+	            def ec2Ip
+
+	            dir('terraform') {
+	                ec2Ip = sh(
+	                    script: 'terraform output -raw public_ip',
+	                    returnStdout: true
+	                ).trim()
+	            }
+
+	            if (!ec2Ip) {
+	                error('EC2 public IP not found')
+	            }
+
+	            sh 'mkdir -p ansible/inventory'
+
+	            writeFile(
+	                file: 'ansible/inventory/hosts.ini',
+	                text: """[webservers]
+	${ec2Ip} ansible_user=ubuntu ansible_ssh_private_key_file=/var/lib/jenkins/.ssh/aws-ansible-key
+	"""
+	            )
+
+	            echo "Generated Ansible inventory for ${ec2Ip}"
+	        }
+	    }
+	}
     }
+
+
 
     post {
         success {

@@ -1,0 +1,17 @@
+---
+- name: Configure AWS EC2 Web Server
+  hosts: webservers
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+   - name: Wait for EC2 SSH connection
+     ansible.builtin.wait_for_connection:
+       delay:10
+       timeout: 300
+
+   - name: Gather server facts
+     ansible.builtin.setup:
+
+  roles:
+   - nginx
