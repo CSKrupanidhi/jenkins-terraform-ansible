@@ -177,7 +177,41 @@ pipeline {
 	        }
 	    }
 	}
+
+
+	stage('Verify Nginx Website') {
+	    when {
+	        expression { params.ACTION == 'BUILD' }
+	    }
+	    steps {
+	        script {
+	            def ec2Ip
+
+	            dir('terraform') {
+	                ec2Ip = sh(
+	                    script: 'terraform output -raw public_ip',
+	                    returnStdout: true
+	                ).trim()
+	            }
+
+	            withEnv(["WEB_SERVER_IP=${ec2Ip}"]) {
+	                sh '''
+	                    set -eu
+	                    echo "Testing Nginx website"
+
+	                    curl --retry 10 \
+	                         --retry-delay 5 \
+	                         --retry-connrefused \
+	                         -fsS "http://${WEB_SERVER_IP}/"
+
+	                    echo "Nginx website is accessible!"
+	                '''
+	            }
+	        }
+	    }
+	}
     }
+
 
 
 
