@@ -139,7 +139,24 @@ pipeline {
                         } else {
                             sh 'terraform state list'
                             echo 'Infrastructure destruction completed.'
-                        }
+stage('Configure EC2 with Ansible') {
+    when {
+        expression { params.ACTION == 'BUILD' }
+    }
+    steps {
+        dir('ansible') {
+            sh '''
+                set -eu
+
+                echo "Checking Ansible"
+                ansible-playbook --version
+
+                echo "Running Ansible playbook"
+                ansible-playbook playbooks/install-nginx.yml
+            '''
+        }
+    }
+}                        }
                     }
                 }
             }
@@ -174,6 +191,25 @@ pipeline {
 	            )
 
 	            echo "Generated Ansible inventory for ${ec2Ip}"
+	        }
+	    }
+	}
+
+	stage('Configure EC2 with Ansible') {
+	    when {
+	        expression { params.ACTION == 'BUILD' }
+	    }
+	    steps {
+	        dir('ansible') {
+	            sh '''
+	                set -eu
+
+	                echo "Checking Ansible"
+	                ansible-playbook --version
+
+	                echo "Running Ansible playbook"
+	                ansible-playbook playbooks/install-nginx.yml
+	            '''
 	        }
 	    }
 	}
